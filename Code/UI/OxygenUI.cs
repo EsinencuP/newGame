@@ -3,14 +3,47 @@ using UnityEngine.UI;
 
 public class OxygenUI : MonoBehaviour
 {
-    public PlayerOxygen player; //* Ссылка на компонент PlayerOxygen, который содержит информацию о кислороде игрока
-    public Image oxygenBar; //* Ссылка на UI элемент, который будет отображать уровень кислорода
+    public PlayerOxygen player;
+    public Image oxygenBar;
 
-    void Update() //! В каждом кадре обновляем UI, чтобы он отображал текущий уровень кислорода игрока
+    private void Awake()
     {
-        float current = player.GetOxygen(); //? Получаем текущий уровень кислорода у игрока
-        float max = player.GetMaxOxygen(); //? Получаем максимальный уровень кислорода у игрока
+        TryResolvePlayer();
+    }
 
-        oxygenBar.fillAmount = current / max; //? Устанавливаем заполнение UI элемента в зависимости от текущего уровня кислорода относительно максимального
+    private void OnEnable()
+    {
+        TryResolvePlayer();
+        if (player != null)
+        {
+            player.OnOxygenChanged += UpdateBar;
+            UpdateBar(player.CurrentOxygen, player.MaxOxygen);
+        }
+    }
+
+    private void OnDisable()
+    {
+        if (player != null)
+        {
+            player.OnOxygenChanged -= UpdateBar;
+        }
+    }
+
+    private void UpdateBar(float current, float max)
+    {
+        if (oxygenBar == null)
+        {
+            return;
+        }
+
+        oxygenBar.fillAmount = max > 0f ? Mathf.Clamp(current / max, 0f, 1f) : 0f;
+    }
+
+    private void TryResolvePlayer()
+    {
+        if (player == null)
+        {
+            player = FindObjectOfType<PlayerOxygen>();
+        }
     }
 }

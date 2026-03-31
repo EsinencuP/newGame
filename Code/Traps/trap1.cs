@@ -1,36 +1,78 @@
 using UnityEngine;
 
+[RequireComponent(typeof(Collider2D))]
 public class TrapDamage : MonoBehaviour
 {
-    public int damage = 1; //* Количество урона, наносимого ловушкой
+    public int damage = 1;
 
-    private PlayerHealth playerInside; //* Ссылка на компонент PlayerHealth игрока, находящегося внутри ловушки
+    private PlayerHealth playerInside;
+    private int overlapCount;
 
-    void OnTriggerEnter2D(Collider2D collision) //! Проверяем, когда игрок входит в ловушку
+    private void OnTriggerEnter2D(Collider2D collision)
     {
-        PlayerHealth player = collision.GetComponent<PlayerHealth>(); //? Получаем компонент PlayerHealth игрока, который вошел в ловушку
-
-        if (player != null) //? Если игрок имеет компонент PlayerHealth, сохраняем ссылку на него
+        PlayerHealth player = collision.GetComponentInParent<PlayerHealth>();
+        if (player == null)
         {
-            playerInside = player; //? Сохраняем ссылку на игрока, находящегося внутри ловушки
+            return;
+        }
+
+        if (playerInside == null || playerInside == player)
+        {
+            playerInside = player;
+            overlapCount++;
+            TryApplyDamage(playerInside);
         }
     }
 
-    void OnTriggerExit2D(Collider2D collision) //! Проверяем, когда игрок покидает ловушку
+    private void OnTriggerStay2D(Collider2D collision)
     {
-        PlayerHealth player = collision.GetComponent<PlayerHealth>(); //? Получаем компонент PlayerHealth игрока, который покинул ловушку
-
-        if (player != null) //? Если игрок имеет компонент PlayerHealth и это тот же игрок, который находился внутри ловушки, сбрасываем ссылку
+        PlayerHealth player = collision.GetComponentInParent<PlayerHealth>();
+        if (player == null)
         {
-            playerInside = null; //? Сбрасываем ссылку на игрока, так как он покинул ловушку
+            return;
+        }
+
+        if (playerInside == null || playerInside == player)
+        {
+            playerInside = player;
+            overlapCount = Mathf.Max(overlapCount, 1);
+            TryApplyDamage(playerInside);
         }
     }
 
-    void Update() //! Наносим урон игроку, если он находится внутри ловушки
+    private void OnTriggerExit2D(Collider2D collision)
     {
-        if (playerInside != null) //? Если игрок находится внутри ловушки, наносим ему урон
+        PlayerHealth player = collision.GetComponentInParent<PlayerHealth>();
+        if (player == null || player != playerInside)
         {
-            playerInside.TakeDamage(damage); //? Вызываем метод TakeDamage у игрока, передавая количество урона
+            return;
         }
+
+        overlapCount = Mathf.Max(0, overlapCount - 1);
+        if (overlapCount == 0)
+        {
+            playerInside = null;
+        }
+    }
+
+    private void TryApplyDamage(PlayerHealth player)
+    {
+        if (damage <= 0 || player == null || player.IsDead)
+        {
+            return;
+        }
+
+        player.TakeDamage(damage);
+    }
+
+    private void OnDisable()
+    {
+        playerInside = null;
+        overlapCount = 0;
+    }
+
+    private void OnValidate()
+    {
+        damage = Mathf.Max(0, damage);
     }
 }

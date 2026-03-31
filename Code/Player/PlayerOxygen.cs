@@ -1,70 +1,86 @@
-using UnityEngine; // Подключаем пространство имён Unity для работы со скриптами Unity
+using System;
+using UnityEngine;
 
-[RequireComponent(typeof(PlayerHealth))] // Требуем, чтобы на объекте обязательно был компонент PlayerHealth
-public class PlayerOxygen : MonoBehaviour // Класс, который отвечает за систему кислорода у игрока
+[RequireComponent(typeof(PlayerHealth))]
+public class PlayerOxygen : MonoBehaviour
 {
-    [Header("Oxygen Settings")] // Заголовок секции настроек кислорода в инспекторе
-    [SerializeField] private float maxOxygen = 100f; // Максимальный запас кислорода
-    [SerializeField] private float oxygenDrainRate = 5f; // Скорость расхода кислорода в секунду
-    [SerializeField] private int damageWhenEmpty = 1; // Урон, который получает игрок, когда кислород закончился
+    [Header("Oxygen Settings")]
+    [SerializeField] private float maxOxygen = 100f;
+    [SerializeField] private float oxygenDrainRate = 5f;
+    [SerializeField] private int damageWhenEmpty = 1;
 
-    private float currentOxygen; // Текущий запас кислорода
-    private PlayerHealth playerHealth; // Ссылка на компонент здоровья игрока
+    private float currentOxygen;
+    private PlayerHealth playerHealth;
 
-    public float CurrentOxygen => currentOxygen; // Свойство только для чтения, чтобы другие скрипты могли получить текущий кислород
-    public float MaxOxygen => maxOxygen; // Свойство только для чтения, чтобы можно было узнать максимальный кислород
+    public float CurrentOxygen => currentOxygen;
+    public float MaxOxygen => maxOxygen;
+    public event Action<float, float> OnOxygenChanged;
 
-    private void Awake() // Метод инициализации, который вызывается до Start
+    private void Awake()
     {
-        playerHealth = GetComponent<PlayerHealth>(); // Получаем ссылку на компонент здоровья, который находится на этом же объекте
-        currentOxygen = maxOxygen; // При запуске заполняем кислород до максимума
+        maxOxygen = Mathf.Max(0f, maxOxygen);
+        oxygenDrainRate = Mathf.Max(0f, oxygenDrainRate);
+        damageWhenEmpty = Mathf.Max(0, damageWhenEmpty);
+        playerHealth = GetComponent<PlayerHealth>();
+        SetOxygen(maxOxygen);
     }
 
-    private void Update() // Update вызывается каждый кадр
+    private void Update()
     {
-        if (playerHealth == null) // Если по какой-то причине компонент здоровья не найден
+        if (playerHealth == null || playerHealth.IsDead || oxygenDrainRate <= 0f)
         {
-            return; // Ничего не делаем, чтобы избежать ошибки NullReference
+            return;
         }
 
-        if (playerHealth.IsDead) // Если игрок уже мёртв
+        if (currentOxygen > 0f)
         {
-            return; // Останавливаем работу логики кислорода
+            SetOxygen(currentOxygen - oxygenDrainRate * Time.deltaTime);
+            return;
         }
 
-        DrainOxygen(); // Уменьшаем кислород или наносим урон, если он закончился
+        if (damageWhenEmpty > 0)
+        {
+            playerHealth.TakeDamage(damageWhenEmpty);
+        }
     }
 
-    private void DrainOxygen() // Метод, который отвечает за расход кислорода
+    public void AddOxygen(float amount)
     {
-        if (currentOxygen > 0f) // Если кислород ещё есть
+        if (amount <= 0f || playerHealth != null && playerHealth.IsDead)
         {
-            currentOxygen -= oxygenDrainRate * Time.deltaTime; // Плавно уменьшаем кислород с учётом времени между кадрами
-            currentOxygen = Mathf.Max(currentOxygen, 0f); // Не даём значению уйти ниже нуля
-            return; // Выходим, потому что пока кислород ещё был, урон не нужен
+            return;
         }
 
-        playerHealth.TakeDamage(damageWhenEmpty); // Если кислород закончился, пытаемся нанести урон игроку
+        SetOxygen(currentOxygen + amount);
     }
 
-    public void AddOxygen(float amount) // Метод для пополнения кислорода, например от баллона или бонуса
+    public float GetOxygen()
     {
-        if (amount <= 0f) // Если передано некорректное значение пополнения
+        return currentOxygen;
+    }
+
+    public float GetMaxOxygen()
+    {
+        return maxOxygen;
+    }
+
+    private void SetOxygen(float value)
+    {
+        float clampedValue = Mathf.Clamp(value, 0f, maxOxygen);
+        if (Mathf.Abs(currentOxygen - clampedValue) <= 0.0001f)
         {
-            return; // Просто выходим
+            return;
         }
 
-        currentOxygen += amount; // Увеличиваем текущий запас кислорода
-        currentOxygen = Mathf.Min(currentOxygen, maxOxygen); // Не даём превысить максимальное значение
+        currentOxygen = clampedValue;
+        OnOxygenChanged?.Invoke(currentOxygen, maxOxygen);
     }
 
-    public float GetOxygen() // Метод для совместимости со старым кодом
+    private void OnValidate()
     {
-        return currentOxygen; // Возвращаем текущее количество кислорода
-    }
-
-    public float GetMaxOxygen() // Метод для совместимости со старым кодом
-    {
-        return maxOxygen; // Возвращаем максимальное количество кислорода
+        maxOxygen = Mathf.Max(0f, maxOxygen);
+        oxygenDrainRate = Mathf.Max(0f, oxygenDrainRate);
+        damageWhenEmpty = Mathf.Max(0, damageWhenEmpty);
+        currentOxygen = Mathf.Clamp(currentOxygen, 0f, maxOxygen);
     }
 }

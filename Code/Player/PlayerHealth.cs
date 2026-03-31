@@ -1,90 +1,94 @@
-using UnityEngine; // Подключаем пространство имён Unity, чтобы использовать MonoBehaviour, Debug, Time и другие классы движка
+using System;
+using UnityEngine;
 
-public class PlayerHealth : MonoBehaviour // Класс, который отвечает за здоровье игрока
+public class PlayerHealth : MonoBehaviour
 {
-    [Header("Health Settings")] // Заголовок секции настроек здоровья в инспекторе Unity
-    [SerializeField] private int maxHealth = 5; // Максимальное количество здоровья игрока
-    [SerializeField] private float damageCooldown = 1f; // Время неуязвимости между получениями урона
+    [Header("Health Settings")]
+    [SerializeField] private int maxHealth = 5;
+    [SerializeField] private float damageCooldown = 1f;
 
-    private int currentHealth; // Текущее количество здоровья игрока
-    private float lastDamageTime = -999f; // Время последнего получения урона; большое отрицательное значение нужно, чтобы первый удар прошёл сразу
-    private bool isDead; // Флаг, который показывает, умер ли уже игрок
+    private int currentHealth;
+    private float lastDamageTime = float.NegativeInfinity;
+    private bool isDead;
 
-    public int CurrentHealth => currentHealth; // Свойство только для чтения, чтобы другие скрипты могли получить текущее здоровье
-    public int MaxHealth => maxHealth; // Свойство только для чтения, чтобы можно было получить максимум здоровья
-    public bool IsDead => isDead; // Свойство только для чтения, чтобы другие скрипты могли проверить, жив ли игрок
+    public int CurrentHealth => currentHealth;
+    public int MaxHealth => maxHealth;
+    public bool IsDead => isDead;
+    public event Action<int, int> OnHealthChanged;
 
-    private void Awake() // Awake вызывается раньше Start и удобен для базовой инициализации
+    private void Awake()
     {
-        currentHealth = maxHealth; // При запуске устанавливаем текущее здоровье равным максимальному
-        Debug.Log("HP: " + currentHealth); // Выводим стартовое здоровье в консоль
+        maxHealth = Mathf.Max(1, maxHealth);
+        damageCooldown = Mathf.Max(0f, damageCooldown);
+        currentHealth = maxHealth;
+        NotifyHealthChanged();
     }
 
-    public bool TakeDamage(int damage) // Метод получения урона; возвращает true, если урон реально был нанесён
+    public bool TakeDamage(int damage)
     {
-        if (isDead) // Если игрок уже мёртв
+        if (isDead || damage <= 0)
         {
-            return false; // Ничего не делаем и сообщаем, что урон не применён
+            return false;
         }
 
-        if (damage <= 0) // Если передали нулевой или отрицательный урон
+        if (Time.time < lastDamageTime + damageCooldown)
         {
-            return false; // Просто выходим, потому что такой урон применять не нужно
+            return false;
         }
 
-        if (Time.time < lastDamageTime + damageCooldown) // Проверяем, не находится ли игрок ещё в окне неуязвимости
+        currentHealth = Mathf.Max(currentHealth - damage, 0);
+        lastDamageTime = Time.time;
+        NotifyHealthChanged();
+
+        if (currentHealth <= 0)
         {
-            return false; // Если кулдаун урона не закончился, урон не наносим
+            Die();
         }
 
-        currentHealth -= damage; // Уменьшаем текущее здоровье на величину урона
-        currentHealth = Mathf.Max(currentHealth, 0); // Страхуемся и не даём здоровью уйти ниже нуля
-
-        lastDamageTime = Time.time; // Запоминаем время последнего успешного получения урона
-
-        Debug.Log("HP: " + currentHealth); // Выводим новое значение здоровья в консоль
-
-        if (currentHealth <= 0) // Если здоровье закончилось
-        {
-            Die(); // Вызываем метод смерти
-        }
-
-        return true; // Сообщаем, что урон был успешно нанесён
+        return true;
     }
 
-    public void Heal(int amount) // Метод восстановления здоровья
+    public void Heal(int amount)
     {
-        if (isDead) // Если игрок уже мёртв
+        if (isDead || amount <= 0)
         {
-            return; // Не лечим мёртвого объекта
+            return;
         }
 
-        if (amount <= 0) // Если количество лечения некорректно
+        int healedHealth = Mathf.Min(currentHealth + amount, maxHealth);
+        if (healedHealth == currentHealth)
         {
-            return; // Выходим без изменений
+            return;
         }
 
-        currentHealth += amount; // Добавляем указанное количество здоровья
-        currentHealth = Mathf.Min(currentHealth, maxHealth); // Ограничиваем здоровье сверху максимальным значением
-
-        Debug.Log("HP: " + currentHealth); // Выводим текущее здоровье после лечения
+        currentHealth = healedHealth;
+        NotifyHealthChanged();
     }
 
-    public int GetHealth() // Метод для совместимости с твоим старым кодом
+    public int GetHealth()
     {
-        return currentHealth; // Возвращаем текущее здоровье
+        return currentHealth;
     }
 
-    private void Die() // Метод смерти игрока
+    private void OnValidate()
     {
-        if (isDead) // Если метод смерти уже вызывался ранее
+        maxHealth = Mathf.Max(1, maxHealth);
+        damageCooldown = Mathf.Max(0f, damageCooldown);
+    }
+
+    private void NotifyHealthChanged()
+    {
+        OnHealthChanged?.Invoke(currentHealth, maxHealth);
+    }
+
+    private void Die()
+    {
+        if (isDead)
         {
-            return; // Повторно ничего не делаем
+            return;
         }
 
-        isDead = true; // Помечаем игрока как мёртвого
-        Debug.Log("Игрок умер"); // Выводим сообщение о смерти в консоль
-
-        Destroy(gameObject); // Удаляем объект игрока со сцены
+        isDead = true;
+        Destroy(gameObject);
     }
 }

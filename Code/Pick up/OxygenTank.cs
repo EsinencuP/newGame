@@ -1,17 +1,42 @@
 using UnityEngine;
 
+[RequireComponent(typeof(Collider2D))]
 public class OxygenTank : MonoBehaviour
 {
-    public float oxygenAmount = 30f; //* Количество кислорода, которое добавляет этот танк
+    public float oxygenAmount = 30f;
 
-    void OnTriggerEnter(Collider other) //! Когда игрок входит в зону действия танка
+    private bool isCollected;
+
+    private void OnTriggerEnter2D(Collider2D other)
     {
-        PlayerOxygen player = other.GetComponent<PlayerOxygen>(); //? Пытаемся получить компонент PlayerOxygen у объекта, который вошел в триггер
+        TryCollect(other);
+    }
 
-        if (player != null) //? Если компонент найден, значит это игрок, и мы можем добавить ему кислород
+    private void OnTriggerEnter(Collider other)
+    {
+        TryCollect(other);
+    }
+
+    private void TryCollect(Component other)
+    {
+        if (isCollected || oxygenAmount <= 0f || other == null)
         {
-            player.AddOxygen(oxygenAmount); //?  Добавляем кислород игроку
-            Destroy(gameObject); //? Уничтожаем танк после использования
+            return;
         }
+
+        PlayerOxygen player = other.GetComponentInParent<PlayerOxygen>();
+        if (player == null)
+        {
+            return;
+        }
+
+        isCollected = true;
+        player.AddOxygen(oxygenAmount);
+        Destroy(gameObject);
+    }
+
+    private void OnValidate()
+    {
+        oxygenAmount = Mathf.Max(0f, oxygenAmount);
     }
 }

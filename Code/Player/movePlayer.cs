@@ -1,279 +1,443 @@
-using UnityEngine; // Подключаем пространство имён Unity, чтобы использовать MonoBehaviour, Rigidbody2D, Input и другие классы движка
+using System.Collections.Generic;
+using UnityEngine;
 
-[RequireComponent(typeof(Rigidbody2D))] // Требуем, чтобы на объекте обязательно был Rigidbody2D, иначе скрипт работать не будет корректно
-public class movePlayer : MonoBehaviour // Основной класс контроллера игрока для 2D платформера
+[RequireComponent(typeof(Rigidbody2D))]
+public class movePlayer : MonoBehaviour
 {
-    [Header("Movement")] // Заголовок секции настроек движения в инспекторе Unity
-    [SerializeField] private float moveSpeed = 5f; // Скорость горизонтального перемещения игрока
+    [Header("Movement")]
+    [SerializeField] private float moveSpeed = 5f;
 
-    [Header("Jump")] // Заголовок секции настроек прыжка
-    [SerializeField] private float jumpForce = 7f; // Сила первого прыжка
-    [SerializeField] private int maxJumps = 2; // Максимальное количество прыжков, например 2 = двойной прыжок
-    [SerializeField] private float secondJumpMultiplier = 0.8f; // Множитель силы для второго прыжка, чтобы он был немного слабее первого
-    [SerializeField] private float coyoteTime = 0.12f; // Время после схода с платформы, когда прыжок ещё можно выполнить
-    [SerializeField] private float jumpBufferTime = 0.12f; // Время буфера нажатия прыжка, чтобы нажатие чуть заранее тоже сработало
+    [Header("Jump")]
+    [SerializeField] private float jumpForce = 7f;
+    [SerializeField] private int maxJumps = 2;
+    [SerializeField] private float secondJumpMultiplier = 0.8f;
+    [SerializeField] private float coyoteTime = 0.12f;
+    [SerializeField] private float jumpBufferTime = 0.12f;
 
-    [Header("Ground Check")] // Заголовок секции проверки земли
-    [SerializeField] private Transform groundCheckPoint; // Точка, из которой мы будем проверять, касается ли игрок земли
-    [SerializeField] private float groundCheckRadius = 0.2f; // Радиус проверки земли вокруг точки groundCheckPoint
-    [SerializeField] private LayerMask groundLayer; // Слой земли, по которому определяется, стоит ли игрок на поверхности
+    [Header("Ground Check")]
+    [SerializeField] private Transform groundCheckPoint;
+    [SerializeField] private float groundCheckRadius = 0.2f;
+    [SerializeField] private LayerMask groundLayer;
 
-    [Header("Dash")] // Заголовок секции настроек рывка
-    [SerializeField] private float dashSpeed = 20f; // Скорость рывка
-    [SerializeField] private float dashDuration = 0.15f; // Длительность рывка в секундах
-    [SerializeField] private float dashCooldown = 1f; // Время перезарядки рывка после использования
-    [SerializeField] private LayerMask wallLayer; // Слой стен, чтобы останавливать дэш при ударе о стену
-    [SerializeField] private float wallCheckDistance = 0.6f; // Дистанция проверки стены перед игроком во время дэша
+    [Header("Dash")]
+    [SerializeField] private float dashSpeed = 20f;
+    [SerializeField] private float dashDuration = 0.15f;
+    [SerializeField] private float dashCooldown = 1f;
+    [SerializeField] private LayerMask wallLayer;
+    [SerializeField] private float wallCheckDistance = 0.6f;
 
-    [Header("Effects")] // Заголовок секции визуальных эффектов
-    [SerializeField] private TrailRenderer trail; // След за игроком во время рывка
-    [SerializeField] private ParticleSystem dashParticles; // Частицы при начале рывка
+    [Header("Wall Movement")]
+    [SerializeField] private float wallSlideSpeed = 2.5f;
+    [SerializeField] private float wallJumpHorizontalForce = 6f;
+    [SerializeField] private float wallJumpVerticalForce = 8f;
+    [SerializeField] private float wallJumpControlLockTime = 0.12f;
 
-    private Rigidbody2D rb; // Ссылка на Rigidbody2D игрока для управления физикой
-    private float defaultGravityScale; // Исходное значение gravityScale, чтобы после дэша вернуть именно его, а не жёстко 1
+    [Header("Effects")]
+    [SerializeField] private TrailRenderer trail;
+    [SerializeField] private ParticleSystem dashParticles;
 
-    private float horizontalInput; // Текущее значение горизонтального ввода: -1, 0 или 1
-    private bool jumpPressed; // Флаг, что кнопка прыжка была нажата в текущем кадре
-    private bool dashPressed; // Флаг, что кнопка дэша была нажата в текущем кадре
+    private readonly List<float> lowGravityMultipliers = new List<float>();
 
-    private bool isGrounded; // Находится ли игрок на земле в текущий момент
-    private bool wasGrounded; // Был ли игрок на земле на предыдущем кадре проверки
-    private int jumpsUsed; // Сколько прыжков уже использовано с момента последнего касания земли
+    private Rigidbody2D rb;
+    private float defaultGravityScale;
 
-    private float coyoteTimer; // Таймер coyote time, позволяющий прыгнуть спустя короткое время после схода с края
-    private float jumpBufferTimer; // Таймер буфера прыжка, чтобы прыжок срабатывал даже если кнопку нажали чуть раньше касания земли
+    private float horizontalInput;
+    private bool jumpPressed;
+    private bool dashPressed;
+    private bool dashQueued;
 
-    private bool isDashing; // Находится ли игрок сейчас в состоянии рывка
-    private bool canDash = true; // Может ли игрок использовать рывок в данный момент
-    private float dashTimer; // Таймер оставшегося времени текущего рывка
-    private float dashCooldownTimer; // Таймер оставшегося времени до восстановления рывка
-    private float dashDirection; // Направление рывка: -1 влево или 1 вправо
+    private bool isGrounded;
+    private bool wasGrounded;
+    private int jumpsUsed;
 
-    private bool facingRight = true; // Направление взгляда игрока: true = вправо, false = влево
+    private float coyoteTimer;
+    private float jumpBufferTimer;
 
-    private void Awake() // Метод вызывается при инициализации объекта до Start
+    private bool isDashing;
+    private bool canDash = true;
+    private float dashTimer;
+    private float dashCooldownTimer;
+    private float dashDirection;
+
+    private bool isTouchingWall;
+    private bool isWallSliding;
+    private int wallDirection;
+    private float wallJumpControlLockTimer;
+
+    private bool facingRight = true;
+
+    private void Awake()
     {
-        rb = GetComponent<Rigidbody2D>(); // Получаем Rigidbody2D с этого же объекта и сохраняем ссылку
-        defaultGravityScale = rb.gravityScale; // Запоминаем исходную гравитацию, чтобы потом корректно восстановить после дэша
+        rb = GetComponent<Rigidbody2D>();
+        defaultGravityScale = Mathf.Max(0f, rb.gravityScale);
+        ApplyGravityScale();
     }
 
-    private void Update() // Update вызывается каждый кадр и лучше подходит для чтения ввода
+    private void Update()
     {
-        ReadInput(); // Считываем нажатия клавиш и осей управления
-        UpdateGroundState(); // Проверяем, стоит ли игрок на земле
-        UpdateTimers(); // Обновляем все таймеры: буфер прыжка, coyote time и кулдаун дэша
-        HandleFlip(); // Разворачиваем игрока в сторону движения
+        ReadInput();
+        UpdateGroundState();
+        UpdateWallState();
+        UpdateTimers();
+        HandleFlip();
     }
 
-    private void FixedUpdate() // FixedUpdate вызывается с постоянным шагом времени и лучше подходит для физики
+    private void FixedUpdate()
     {
-        if (isDashing) // Если сейчас активен рывок
+        if (isDashing)
         {
-            HandleDash(); // Обрабатываем логику рывка отдельно
-            return; // Выходим, чтобы обычное движение и прыжок не вмешивались во время дэша
+            HandleDash();
+            return;
         }
 
-        HandleMovement(); // Выполняем обычное горизонтальное движение
-        HandleJump(); // Обрабатываем прыжок
-        HandleDashStart(); // Проверяем, нужно ли начать дэш
+        HandleMovement();
+        HandleWallSlide();
+        HandleJump();
+        HandleDashStart();
+        dashQueued = false;
     }
 
-    private void ReadInput() // Метод считывает ввод игрока
+    public void EnterLowGravityZone(float gravityMultiplier)
     {
-        horizontalInput = Input.GetAxisRaw("Horizontal"); // Получаем горизонтальный ввод: -1 влево, 1 вправо, 0 если кнопки не нажаты
-        jumpPressed = Input.GetKeyDown(KeyCode.Space); // Проверяем, была ли нажата кнопка прыжка в этом кадре
-        dashPressed = Input.GetKeyDown(KeyCode.LeftShift); // Проверяем, была ли нажата кнопка рывка в этом кадре
-
-        if (jumpPressed) // Если игрок нажал прыжок
-        {
-            jumpBufferTimer = jumpBufferTime; // Запускаем буфер прыжка, чтобы команда не потерялась
-        }
+        lowGravityMultipliers.Add(NormalizeGravityMultiplier(gravityMultiplier));
+        ApplyGravityScale();
     }
 
-    private void UpdateGroundState() // Метод обновляет состояние нахождения на земле
+    public void ExitLowGravityZone(float gravityMultiplier)
     {
-        wasGrounded = isGrounded; // Сохраняем предыдущее состояние земли, чтобы отследить момент приземления
-
-        if (groundCheckPoint != null) // Проверяем, назначена ли точка проверки земли в инспекторе
+        float normalizedMultiplier = NormalizeGravityMultiplier(gravityMultiplier);
+        for (int i = 0; i < lowGravityMultipliers.Count; i++)
         {
-            isGrounded = Physics2D.OverlapCircle(groundCheckPoint.position, groundCheckRadius, groundLayer); // Проверяем, пересекается ли круг у ног игрока со слоем земли
-        }
-        else // Если точка проверки земли не назначена
-        {
-            isGrounded = false; // Считаем, что игрок не на земле, чтобы избежать ложной логики
-        }
-
-        if (isGrounded) // Если игрок сейчас стоит на земле
-        {
-            coyoteTimer = coyoteTime; // Обновляем таймер coyote time, чтобы прыжок был доступен сразу после схода с края
-            if (!wasGrounded) // Если игрок только что приземлился в этом кадре
+            if (Mathf.Abs(lowGravityMultipliers[i] - normalizedMultiplier) <= 0.0001f)
             {
-                jumpsUsed = 0; // Сбрасываем количество использованных прыжков
+                lowGravityMultipliers.RemoveAt(i);
+                break;
+            }
+        }
+
+        ApplyGravityScale();
+    }
+
+    private void ReadInput()
+    {
+        horizontalInput = Mathf.Clamp(Input.GetAxisRaw("Horizontal"), -1f, 1f);
+        jumpPressed = Input.GetKeyDown(KeyCode.Space);
+        dashPressed = Input.GetKeyDown(KeyCode.LeftShift);
+
+        if (jumpPressed)
+        {
+            jumpBufferTimer = jumpBufferTime;
+        }
+
+        if (dashPressed && !isDashing)
+        {
+            dashQueued = true;
+        }
+    }
+
+    private void UpdateGroundState()
+    {
+        wasGrounded = isGrounded;
+        isGrounded = groundCheckPoint != null && Physics2D.OverlapCircle(groundCheckPoint.position, groundCheckRadius, groundLayer);
+
+        if (isGrounded)
+        {
+            coyoteTimer = coyoteTime;
+
+            if (!wasGrounded)
+            {
+                jumpsUsed = 0;
+                wallJumpControlLockTimer = 0f;
             }
         }
     }
 
-    private void UpdateTimers() // Метод уменьшает все временные счётчики
+    private void UpdateWallState()
     {
-        if (!isGrounded) // Если игрок не на земле
+        RaycastHit2D rightHit = Physics2D.Raycast(transform.position, Vector2.right, wallCheckDistance, wallLayer);
+        RaycastHit2D leftHit = Physics2D.Raycast(transform.position, Vector2.left, wallCheckDistance, wallLayer);
+
+        if (rightHit.collider != null)
         {
-            coyoteTimer -= Time.deltaTime; // Постепенно уменьшаем coyote time
+            wallDirection = 1;
+        }
+        else if (leftHit.collider != null)
+        {
+            wallDirection = -1;
+        }
+        else
+        {
+            wallDirection = 0;
         }
 
-        if (jumpBufferTimer > 0f) // Если буфер прыжка ещё активен
+        isTouchingWall = wallDirection != 0;
+        isWallSliding = !isGrounded && !isDashing && isTouchingWall && rb.linearVelocity.y < 0f;
+    }
+
+    private void UpdateTimers()
+    {
+        if (!isGrounded)
         {
-            jumpBufferTimer -= Time.deltaTime; // Уменьшаем таймер буфера прыжка
+            coyoteTimer = Mathf.Max(0f, coyoteTimer - Time.deltaTime);
         }
 
-        if (!canDash) // Если дэш сейчас на перезарядке
+        if (jumpBufferTimer > 0f)
         {
-            dashCooldownTimer -= Time.deltaTime; // Уменьшаем таймер кулдауна дэша
-            if (dashCooldownTimer <= 0f) // Если кулдаун закончился
+            jumpBufferTimer = Mathf.Max(0f, jumpBufferTimer - Time.deltaTime);
+        }
+
+        if (!canDash)
+        {
+            dashCooldownTimer -= Time.deltaTime;
+            if (dashCooldownTimer <= 0f)
             {
-                canDash = true; // Снова разрешаем использование дэша
+                canDash = true;
+                dashCooldownTimer = 0f;
             }
         }
-    }
 
-    private void HandleMovement() // Метод отвечает за обычное горизонтальное перемещение
-    {
-        rb.linearVelocity = new Vector2(horizontalInput * moveSpeed, rb.linearVelocity.y); // Меняем только горизонтальную скорость, оставляя вертикальную без изменений
-    }
-
-    private void HandleJump() // Метод отвечает за логику прыжков
-    {
-        if (jumpBufferTimer <= 0f) // Если буфер прыжка уже истёк и команды на прыжок нет
+        if (wallJumpControlLockTimer > 0f)
         {
-            return; // Выходим, так как прыгать не нужно
-        }
-
-        bool canUseGroundJump = coyoteTimer > 0f && jumpsUsed == 0; // Проверяем, доступен ли первый прыжок с земли или в рамках coyote time
-        bool canUseAirJump = jumpsUsed > 0 && jumpsUsed < maxJumps; // Проверяем, доступен ли дополнительный прыжок в воздухе
-
-        if (!canUseGroundJump && !canUseAirJump) // Если ни один вариант прыжка сейчас недоступен
-        {
-            return; // Выходим, прыжок выполнить нельзя
-        }
-
-        float currentJumpForce = jumpForce; // По умолчанию используем силу основного прыжка
-
-        if (jumpsUsed > 0) // Если это не первый прыжок, а дополнительный
-        {
-            currentJumpForce *= secondJumpMultiplier; // Ослабляем силу второго прыжка множителем
-        }
-
-        rb.linearVelocity = new Vector2(rb.linearVelocity.x, 0f); // Сначала обнуляем вертикальную скорость, чтобы прыжок был одинаково стабильным
-        rb.linearVelocity = new Vector2(rb.linearVelocity.x, currentJumpForce); // Устанавливаем новую вертикальную скорость для прыжка
-
-        jumpsUsed++; // Увеличиваем счётчик использованных прыжков
-        jumpBufferTimer = 0f; // Сбрасываем буфер прыжка, чтобы он не сработал повторно
-        coyoteTimer = 0f; // Сбрасываем coyote time после прыжка, чтобы первый прыжок нельзя было использовать повторно
-    }
- 
-    private void HandleDashStart() // Метод проверяет, нужно ли начать рывок
-    {
-        if (!dashPressed) // Если кнопка дэша не нажата
-        {
-            return; // Выходим, начинать дэш не нужно
-        }
-
-        if (!canDash) // Если дэш сейчас недоступен из-за кулдауна
-        {
-            return; // Выходим, дэш использовать нельзя
-        }
-
-        dashDirection = horizontalInput; // Пытаемся взять направление дэша из текущего ввода игрока
-
-        if (dashDirection == 0f) // Если игрок не нажимает влево или вправо
-        {
-            dashDirection = facingRight ? 1f : -1f; // Используем направление, в которое смотрит персонаж
-        }
-
-        StartDash(); // Запускаем рывок
-    }
-
-    private void StartDash() // Метод запускает состояние рывка
-    {
-        isDashing = true; // Помечаем, что игрок начал дэш
-        canDash = false; // Запрещаем новый дэш до окончания кулдауна
-        dashTimer = dashDuration; // Устанавливаем таймер текущего рывка
-        dashCooldownTimer = dashCooldown; // Запускаем таймер перезарядки дэша
-
-        rb.gravityScale = 0f; // На время рывка отключаем влияние гравитации
-        rb.linearVelocity = Vector2.zero; // Обнуляем текущую скорость, чтобы рывок начинался предсказуемо
-
-        if (trail != null) // Если назначен TrailRenderer
-        {
-            trail.Clear(); // Очищаем старый след, чтобы новый рывок выглядел аккуратно
-            trail.emitting = true; // Включаем отрисовку следа
-        }
-
-        if (dashParticles != null) // Если назначена система частиц
-        {
-            dashParticles.Play(); // Проигрываем эффект частиц в начале рывка
+            wallJumpControlLockTimer = Mathf.Max(0f, wallJumpControlLockTimer - Time.deltaTime);
         }
     }
 
-    private void HandleDash() // Метод выполняет сам рывок каждый физический тик
+    private void HandleMovement()
     {
-        RaycastHit2D hit = Physics2D.Raycast(transform.position, Vector2.right * dashDirection, wallCheckDistance, wallLayer); // Пускаем луч в сторону рывка, чтобы заранее проверить стену
-
-        if (hit.collider != null) // Если луч попал в стену
+        if (wallJumpControlLockTimer > 0f)
         {
-            StopDash(); // Сразу останавливаем рывок, чтобы не врезаться и не залипнуть
-            return; // Выходим из метода
+            return;
         }
 
-        rb.linearVelocity = new Vector2(dashDirection * dashSpeed, 0f); // Во время рывка задаём фиксированную скорость по X и отключаем движение по Y
-        dashTimer -= Time.fixedDeltaTime; // Уменьшаем оставшееся время рывка на один физический шаг
+        rb.linearVelocity = new Vector2(horizontalInput * moveSpeed, rb.linearVelocity.y);
+    }
 
-        if (dashTimer <= 0f) // Если время рывка истекло
+    private void HandleWallSlide()
+    {
+        if (!isWallSliding)
         {
-            StopDash(); // Завершаем рывок
+            return;
+        }
+
+        float clampedVerticalSpeed = Mathf.Max(rb.linearVelocity.y, -wallSlideSpeed);
+        rb.linearVelocity = new Vector2(rb.linearVelocity.x, clampedVerticalSpeed);
+    }
+
+    private void HandleJump()
+    {
+        if (jumpBufferTimer <= 0f)
+        {
+            return;
+        }
+
+        if (TryWallJump())
+        {
+            return;
+        }
+
+        bool canUseGroundJump = coyoteTimer > 0f && jumpsUsed == 0;
+        bool canUseAirJump = jumpsUsed > 0 && jumpsUsed < maxJumps;
+
+        if (!canUseGroundJump && jumpsUsed == 0 && maxJumps > 1)
+        {
+            canUseAirJump = true;
+        }
+
+        if (!canUseGroundJump && !canUseAirJump)
+        {
+            return;
+        }
+
+        float currentJumpForce = jumpsUsed > 0 ? jumpForce * secondJumpMultiplier : jumpForce;
+        rb.linearVelocity = new Vector2(rb.linearVelocity.x, currentJumpForce);
+
+        jumpsUsed++;
+        jumpBufferTimer = 0f;
+        coyoteTimer = 0f;
+        isWallSliding = false;
+    }
+
+    private bool TryWallJump()
+    {
+        if (isGrounded || !isTouchingWall || wallDirection == 0)
+        {
+            return false;
+        }
+
+        int jumpDirection = -wallDirection;
+        rb.linearVelocity = new Vector2(jumpDirection * wallJumpHorizontalForce, wallJumpVerticalForce);
+
+        wallJumpControlLockTimer = wallJumpControlLockTime;
+        jumpsUsed = 1;
+        jumpBufferTimer = 0f;
+        coyoteTimer = 0f;
+        isWallSliding = false;
+
+        if (jumpDirection > 0 && !facingRight)
+        {
+            Flip(true);
+        }
+        else if (jumpDirection < 0 && facingRight)
+        {
+            Flip(false);
+        }
+
+        return true;
+    }
+
+    private void HandleDashStart()
+    {
+        dashPressed = dashQueued;
+
+        if (!dashPressed || !canDash)
+        {
+            return;
+        }
+
+        dashDirection = horizontalInput;
+        if (dashDirection == 0f)
+        {
+            dashDirection = facingRight ? 1f : -1f;
+        }
+
+        StartDash();
+    }
+
+    private void StartDash()
+    {
+        isDashing = true;
+        canDash = false;
+        dashTimer = dashDuration;
+        dashCooldownTimer = dashCooldown;
+        isWallSliding = false;
+
+        ApplyGravityScale();
+        rb.linearVelocity = Vector2.zero;
+
+        if (trail != null)
+        {
+            trail.Clear();
+            trail.emitting = true;
+        }
+
+        if (dashParticles != null)
+        {
+            dashParticles.Play();
         }
     }
 
-    private void StopDash() // Метод завершает рывок и возвращает обычное состояние
+    private void HandleDash()
     {
-        isDashing = false; // Снимаем флаг активного дэша
-        rb.gravityScale = defaultGravityScale; // Возвращаем исходное значение гравитации, которое было до дэша
-        rb.linearVelocity = Vector2.zero; // Останавливаем остаточную скорость рывка, чтобы поведение было контролируемым
-
-        if (trail != null) // Если след был назначен
+        RaycastHit2D hit = Physics2D.Raycast(transform.position, dashDirection > 0f ? Vector2.right : Vector2.left, wallCheckDistance, wallLayer);
+        if (hit.collider != null)
         {
-            trail.emitting = false; // Отключаем отрисовку следа после окончания рывка
+            StopDash();
+            return;
+        }
+
+        rb.linearVelocity = new Vector2(dashDirection * dashSpeed, 0f);
+        dashTimer -= Time.fixedDeltaTime;
+
+        if (dashTimer <= 0f)
+        {
+            StopDash();
         }
     }
 
-    private void HandleFlip() // Метод отвечает за разворот персонажа в сторону движения
+    private void StopDash()
     {
-        if (horizontalInput > 0f && !facingRight) // Если игрок движется вправо, но персонаж смотрит влево
+        isDashing = false;
+        ApplyGravityScale();
+        rb.linearVelocity = Vector2.zero;
+
+        if (trail != null)
         {
-            Flip(true); // Разворачиваем персонажа вправо
-        }
-        else if (horizontalInput < 0f && facingRight) // Если игрок движется влево, но персонаж смотрит вправо
-        {
-            Flip(false); // Разворачиваем персонажа влево
+            trail.emitting = false;
         }
     }
 
-    private void Flip(bool faceRight) // Метод непосредственно меняет направление персонажа
+    private void HandleFlip()
     {
-        facingRight = faceRight; // Сохраняем новое направление взгляда
-
-        Vector3 scale = transform.localScale; // Берём текущий масштаб объекта
-        scale.x = Mathf.Abs(scale.x) * (facingRight ? 1f : -1f); // Меняем знак по оси X в зависимости от направления взгляда
-        transform.localScale = scale; // Применяем новый масштаб объекту
-    }
-
-    private void OnDrawGizmosSelected() // Метод рисует вспомогательные элементы в редакторе Unity при выделенном объекте
-    {
-        if (groundCheckPoint == null) // Если точка проверки земли не назначена
+        if (isDashing)
         {
-            return; // Ничего не рисуем
+            return;
         }
 
-        Gizmos.color = Color.yellow; // Устанавливаем жёлтый цвет для визуализации зоны проверки земли
-        Gizmos.DrawWireSphere(groundCheckPoint.position, groundCheckRadius); // Рисуем окружность проверки земли в сцене Unity
+        if (horizontalInput > 0f && !facingRight)
+        {
+            Flip(true);
+        }
+        else if (horizontalInput < 0f && facingRight)
+        {
+            Flip(false);
+        }
+    }
+
+    private void Flip(bool faceRight)
+    {
+        facingRight = faceRight;
+
+        Vector3 scale = transform.localScale;
+        scale.x = Mathf.Abs(scale.x) * (facingRight ? 1f : -1f);
+        transform.localScale = scale;
+    }
+
+    private float GetGravityMultiplier()
+    {
+        float gravityMultiplier = 1f;
+
+        for (int i = 0; i < lowGravityMultipliers.Count; i++)
+        {
+            gravityMultiplier = Mathf.Min(gravityMultiplier, lowGravityMultipliers[i]);
+        }
+
+        return gravityMultiplier;
+    }
+
+    private float NormalizeGravityMultiplier(float gravityMultiplier)
+    {
+        return Mathf.Clamp(gravityMultiplier, 0.01f, 1f);
+    }
+
+    private void ApplyGravityScale()
+    {
+        if (rb == null)
+        {
+            return;
+        }
+
+        rb.gravityScale = isDashing ? 0f : defaultGravityScale * GetGravityMultiplier();
+    }
+
+    private void OnValidate()
+    {
+        moveSpeed = Mathf.Max(0f, moveSpeed);
+        jumpForce = Mathf.Max(0f, jumpForce);
+        maxJumps = Mathf.Max(1, maxJumps);
+        secondJumpMultiplier = Mathf.Max(0f, secondJumpMultiplier);
+        coyoteTime = Mathf.Max(0f, coyoteTime);
+        jumpBufferTime = Mathf.Max(0f, jumpBufferTime);
+        groundCheckRadius = Mathf.Max(0.01f, groundCheckRadius);
+        dashSpeed = Mathf.Max(0f, dashSpeed);
+        dashDuration = Mathf.Max(0.01f, dashDuration);
+        dashCooldown = Mathf.Max(0f, dashCooldown);
+        wallCheckDistance = Mathf.Max(0.01f, wallCheckDistance);
+        wallSlideSpeed = Mathf.Max(0f, wallSlideSpeed);
+        wallJumpHorizontalForce = Mathf.Max(0f, wallJumpHorizontalForce);
+        wallJumpVerticalForce = Mathf.Max(0f, wallJumpVerticalForce);
+        wallJumpControlLockTime = Mathf.Max(0f, wallJumpControlLockTime);
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        if (groundCheckPoint != null)
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireSphere(groundCheckPoint.position, groundCheckRadius);
+        }
+
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawLine(transform.position, transform.position + Vector3.right * wallCheckDistance);
+        Gizmos.DrawLine(transform.position, transform.position + Vector3.left * wallCheckDistance);
     }
 }
